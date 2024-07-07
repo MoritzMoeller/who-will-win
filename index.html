@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Euro 2024 Predictor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        select, button, input { margin: 5px; padding: 5px; }
+        #weightChart { margin-top: 20px; }
+        .game-list { margin-top: 20px; }
+        .game-item { margin-bottom: 5px; }
+        .delete-btn { margin-left: 10px; }
+        .winner { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Euro 2024 Predictor</h1>
+    
+    <h2>Add Game Result</h2>
+    <select id="team1"></select>
+    <select id="team2"></select>
+    <input type="number" id="score1" placeholder="Score 1" min="0">
+    <input type="number" id="score2" placeholder="Score 2" min="0">
+    <button onclick="addGameFromInput()">Add Game</button>
+
+    <h2>Game List</h2>
+    <div id="gameList" class="game-list"></div>
+
+    <h2>Predict Game</h2>
+    <select id="predTeam1"></select>
+    <select id="predTeam2"></select>
+    <button onclick="predictGame()">Predict</button>
+    <div id="predictionResult"></div>
+
+    <h2>Team Weights</h2>
+    <canvas id="weightChart"></canvas>
+
+    <script>
+        const teams = [
+            "Germany", "Albania", "Austria", "Belgium", "Croatia", "Czech Republic", 
+            "Denmark", "England", "France", "Georgia", "Hungary", "Italy", 
+            "Netherlands", "Poland", "Portugal", "Romania", "Scotland", "Serbia", 
+            "Slovakia", "Slovenia", "Spain", "Switzerland", "Turkey", "Ukraine",
+            "North Macedonia" // Added North Macedonia
+        ];
+        let weights = {};
+        let games = [];
+        const learningRate = 0.1;
+        let chart;
+
+        function sigmoid(x) {
+            return 1 / (1 + Math.exp(-x));
+        }
+
+        function predict(team1, team2) {
+            const diff = weights[team1] - weights[team2];
+            return sigmoid(diff);
+        }
+
+        function updateWeights(team1, team2, winner) {
+            const pred = predict(team1, team2);
+            const actual = winner === team1 ? 1 : 0;
+            weights[team1] += learningRate * (actual - pred);
+            weights[team2] -= learningRate * (actual - pred);
+        }
+
+        function addGame(team1, team2, score1, score2) {
+            if (team1 && team2 && !isNaN(score1) && !isNaN(score2) && team1 !== team2) {
+                const winner = score1 > score2 ? team1 : (score2 > score1 ? team2 : null);
+                const game = {team1, team2, score1, score2, winner};
+                games.push(game);
+                if (winner) {
+                    updateWeights(team1, team2, winner);
+                }
+                updateGameList();
+                updateWeightChart();
+            } else {
+                console.error("Invalid game data");
+            }
+        }
+
+        function addGameFromInput() {
+            const team1 = document.getElementById('team1').value;
+            const team2 = document.getElementById('team2').value;
+            const score1 = parseInt(document.getElementById('score1').value);
+            const score2 = parseInt(document.getElementById('score2').value);
+            addGame(team1, team2, score1, score2);
+        }
+
+        function updateGameList() {
+            const gameList = document.getElementById('gameList');
+            gameList.innerHTML = '';
+            games.forEach((game, index) => {
+                const gameItem = document.createElement('div');
+                gameItem.className = 'game-item';
+                const winnerClass = game.winner ? 'winner' : '';
+                gameItem.innerHTML = `
+                    <span class="${game.winner === game.team1 ? winnerClass : ''}">${game.team1}</span> 
+                    ${game.score1} - ${game.score2} 
+                    <span class="${game.winner === game.team2 ? winnerClass : ''}">${game.team2}</span>
+                    <button class="delete-btn" onclick="deleteGame(${index})">Delete</button>
+                `;
+                gameList.appendChild(gameItem);
+            });
+        }
+
+        function deleteGame(index) {
+            games.splice(index, 1);
+            recalculateWeights();
+            updateGameList();
+            updateWeightChart();
+        }
+
+        function recalculateWeights() {
+            initializeWeights();
+            games.forEach(game => {
+                if (game.winner) {
+                    updateWeights(game.team1, game.team2, game.winner);
+                }
+            });
+        }
+
+        function predictGame() {
+            const team1 = document.getElementById('predTeam1').value;
+            const team2 = document.getElementById('predTeam2').value;
+            const resultDiv = document.getElementById('predictionResult');
+
+            if (team1 && team2 && team1 !== team2) {
+                const prob = predict(team1, team2);
+                resultDiv.textContent = `Probability of ${team1} winning against ${team2}: ${prob.toFixed(2)}`;
+            } else {
+                resultDiv.textContent = "Please enter valid teams";
+            }
+        }
+
+        function updateWeightChart() {
+            const ctx = document.getElementById('weightChart').getContext('2d');
+            const data = {
+                labels: teams,
+                datasets: [{
+                    label: 'Team Weights',
+                    data: teams.map(team => weights[team]),
+                    backgroundColor: 'rgba(75, 192, 192, 0.6)'
+                }]
+            };
+            
+            if (chart) {
+                chart.data = data;
+                chart.update();
+            } else {
+                chart = new Chart(ctx, {
+                    type: 'bar',
+                    data: data,
+                    options: {
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function populateDropdowns() {
+            const dropdowns = ['team1', 'team2', 'predTeam1', 'predTeam2'];
+            dropdowns.forEach(id => {
+                const select = document.getElementById(id);
+                teams.forEach(team => {
+                    const option = document.createElement('option');
+                    option.value = team;
+                    option.textContent = team;
+                    select.appendChild(option);
+                });
+            });
+        }
+
+        function initializeWeights() {
+            teams.forEach(team => {
+                weights[team] = 0;
+            });
+        }
+
+        function prefillMatches() {
+            // Group A
+            addGame("Germany", "Scotland", 4, 1);
+            addGame("Hungary", "Switzerland", 1, 1);
+            addGame("Germany", "Hungary", 2, 0);
+            addGame("Scotland", "Switzerland", 1, 2);
+            addGame("Germany", "Switzerland", 3, 0);
+            addGame("Scotland", "Hungary", 1, 1);
+
+            // Group B
+            addGame("Spain", "Croatia", 3, 0);
+            addGame("Italy", "Albania", 2, 1);
+            addGame("Croatia", "Albania", 2, 2);
+            addGame("Spain", "Italy", 1, 0);
+            addGame("Albania", "Spain", 0, 1);
+            addGame("Croatia", "Italy", 1, 1);
+
+            // Group C
+            addGame("England", "Serbia", 2, 1);
+            addGame("Slovenia", "North Macedonia", 1, 0);
+            addGame("England", "North Macedonia", 3, 0);
+            addGame("Serbia", "Slovenia", 1, 1);
+            addGame("England", "Slovenia", 2, 2);
+            addGame("Serbia", "North Macedonia", 3, 1);
+
+            // Group D
+            addGame("Poland", "Netherlands", 1, 2);
+            addGame("Austria", "France", 0, 1);
+            addGame("Poland", "Austria", 1, 3);
+            addGame("Netherlands", "France", 0, 0);
+            addGame("Netherlands", "Austria", 2, 3);
+            addGame("France", "Poland", 1, 1);
+
+            // Group E
+            addGame("Romania", "Ukraine", 3, 0);
+            addGame("Belgium", "Slovakia", 0, 1);
+            addGame("Slovakia", "Ukraine", 1, 2);
+            addGame("Belgium", "Romania", 2, 0);
+            addGame("Slovakia", "Romania", 1, 1);
+
+            // Group F
+            addGame("Turkey", "Georgia", 3, 1);
+            addGame("Portugal", "Czech Republic", 2, 1);
+            addGame("Georgia", "Czech Republic", 1, 1);
+            addGame("Turkey", "Portugal", 0, 3);
+            addGame("Georgia", "Portugal", 2, 0);
+            addGame("Czech Republic", "Turkey", 1, 2);
+
+            // Round of 16
+            addGame("Switzerland", "Italy", 2, 0);
+            addGame("Germany", "Denmark", 2, 0);
+            addGame("England", "Slovakia", 2, 1);
+            addGame("Spain", "Georgia", 4, 1);
+            addGame("France", "Belgium", 1, 0);
+            addGame("Portugal", "Slovenia", 0, 0);
+            addGame("Romania", "Netherlands", 0, 3);
+            addGame("Austria", "Turkey", 1, 2);
+
+            // Quarterfinals
+            addGame("Spain", "Germany", 2, 1);
+            addGame("Portugal", "France", 0, 0);
+            addGame("England", "Switzerland", 1, 1);
+            addGame("Netherlands", "Turkey", 2, 1);
+        }
+
+        // Initialize the application
+        initializeWeights();
+        populateDropdowns();
+        prefillMatches();
+        updateWeightChart();
+    </script>
+</body>
+</html>
